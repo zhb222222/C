@@ -1,0 +1,328 @@
+# This is to show the inner memory layout for a lc3 machine
+
+       MEMORY
+-------------------------
+x0000			|
+	system space	|
+			|
+			|
+			|
+			|
+			|
+			|
+			|
+x2FFF			|
+	user space	|
+	     		|
+			|
+			|
+			|
+			|
+			|
+			|
+xFEFF			|
+	the outer device|
+-------------------------
+
+#################################################################################################################
+#################################################################################################################
+TRAP VECTOR TABLE##
+###################
+
+x0020:	x044C	GETC
+x0021:	x0450	OUT
+x0022:	x0456	PUTS
+x0023:	x0436	IN
+x0024:	x046F	PUTSP
+x0025:	x048E	HALT
+
+else from x0000 to x00FF and not in the previous table: x0495 0000 0100 1001 0101(BRz #149)
+
+the knowledge for the systm call:
+when doing the TRAP instruction, it will:
+     1. zero extend the TRAP vector and load it into the MAR
+     2. mem(zero-extend TRAP vector) -> MDR
+     3. store the current PC into R7
+     4. MDR -> PC
+     5. implementing the system service
+     5. JMP R7(RET) to return the control back to user
+
+
+x0100:	x0498
+x0101:	x0499
+x0102:	x049A
+
+..... the contents are all x049A (BRz #154)
+      x165: BRz	   OS_START
+      x168: BRz	   OS_START_MESSAGE
+
+x01FF:	x049A
+
+#####################################################################################################
+#####################################################################################################
+OS_START##
+##########
+
+OS_START
+	x0200:	xE002	(LEA	R0, OS_START_MSG)
+
+	x0201:	xF022	(PUTS)
+	x0202:	xF025	(HALT)
+
+######################################################################################################
+######################################################################################################
+OUT_START_MSG##
+###############
+
+OS_START_MSG	x0203
+
+	x0203 ~ x043D: .FILL ASCII
+	x0203: '\n',   x043D: '\0'
+This part store the Operating System Message
+	
+	      	       	     OS_START_MSG
+--------------------------------------------------------------------------
+
+Welcome to the LC-3 simulator.
+
+The contents of the LC-3 tools distribution, including sources, management
+tools, and data, are Copyright (c) 2003 Steven S. Lumetta.
+
+The LC-3 tools distribution is free software covered by the GNU General
+Public License, and you are welcome to modify it and/or distribute copies
+of it under certain conditions.  The file COPYING (distributed with the
+tools) specifies those conditions.  There is absolutely no warranty for
+the LC-3 tools distribution, as described in the file NO_WARRANTY (also
+distributed with the tools).
+
+Have fun.
+
+--------------------------------------------------------------------------
+
+
+######################################################################################################
+######################################################################################################
+OUTER DEVICE INFO##
+###################
+
+OS_KBSR (x043E)
+	.FILL	xFE00
+
+OS_KBDR (x043F)
+	.FILL	xFE02
+
+OS_DSR (x0440)
+	.FILL	xFE04
+
+OS_DDR (x0441)
+        .FILL	xFE06
+
+OS_MCR (x0442)
+        .FILL	xFFFE
+
+######################################################################################################
+######################################################################################################
+REGISTER INFO##
+###############
+
+MASK_HI (x0443)
+	STR R7, R7, #-1		(x7FFF)
+
+LOW_8_BITS (x0444)
+	.FILL	x00FF
+
+TOUT_R1 (x0455)
+	BRz x0511		(x04CB)
+
+TIN_R7 (x0446)
+        x0000
+
+OS_R0 (x0447)
+        BRz x04F8		(x04B0)
+
+OS_R1 (x0448)
+	x0000
+
+OS_R2 (x0449)
+	x0000
+
+OS_R3 (x044A)
+	x0000
+
+OS_R7 (x044B)
+	BRz x04DC		(x0490)
+
+######################################################################################################
+######################################################################################################
+Six System Calls##
+##################
+
+TRAP_GETC (x044C)
+	  LDI R0, OS_KBSR
+	  BRzp	  TRAP_GETC
+	  LDI R0, OS_KBDR
+	  RET
+
+
+TRAP_OUT (x0450)
+	  ST R1, TOUT_R1
+TRAP_OUT_WAIT (x0451)
+	  LDI R1, OS_DSR
+	  BRzp	  TRAP_OUT_WAIT
+	  STI R0, OS_DDR
+	  LD R1, TOUT_R1
+	  RET
+
+
+TRAP_PUTS (x0456)
+	  ST R0, OS_R0
+	  ST R1, OS_R1
+	  ST R7, OS_R7
+	  ADD R1, R0, #0
+TRAP_PUTS_LOOP (x045A)
+	  LDR R0, R1, #0
+	  BRz TRAP_PUTS_DONE
+	  OUT
+	  ADD R1, R1, #1
+	  BRnap TRAP_PUTS_LOOP
+TRAP_PUTS_DONE (x045F)
+	  LD R0, OS_R0
+	  LD R1, OS_R1
+	  LD R7, OS_R7
+	  RET
+
+
+TRAP_IN (x0463)
+	  ST R7, TIN_R7
+	  LEA R0, TRAP_IN_MSG
+	  PUTS
+	  GETC
+	  OUT
+	  ST R0, OS_R0
+	  AND R0, R0, #0
+	  ADD R0, R0, #10
+	  OUT
+	  LD R0, OS_R0
+	  LD R7, TIN_R7
+	  RET
+
+
+TRAP_PUTSP (x046F)
+	  ST R0, OS_R0
+	  ST R1, OS_R1
+	  ST R2, OS_R2
+	  ST R3, OS_R3
+	  ST R7, OS_R7
+	  ADD R1, R0, #0
+TRAP_PUTSP_LOOP (x0475)
+	  LDR R2, R1, #0
+	  LD R0, LOW_8_BITS
+	  AND R0, R0, R2
+	  BRz TRAP_PUTSP_DONE
+	  OUT
+	  AND R0, R0, #0
+	  ADD R3, R0, 8
+TRAP_PUTSP_S_LOOP (x047C)
+	  ADD R0, R0, R0
+	  ADD R2, R2, #0
+	  BRzp	  TRAP_PUTSP_MSB_0
+	  ADD R0, R0, #1
+TRAP_PUTSP_MSB_0 (x0480)
+	  ADD R2, R2, R2
+	  ADD R3, R3, #-1
+	  BRp TRAP_PUTSP_S_LOOP
+	  ADD R0, R0, #0
+	  BRz TRAP_PUTSP_DONE
+	  OUT
+	  ADD R1, R1, #1
+	  BRnzp	  TRAP_PUTSP_LOOP
+TRAP_PUTSP_DONE (x0488)
+	  LD R0, OS_R0
+	  LD R1, OS_R1
+	  LD R2, OS_R2
+	  LD R3, OS_R3
+	  LD R7, OS_R7
+	  RET
+	  
+
+TRAP_HALT (x048E)
+	  LEA R0, TRAP_HALT_MSG
+	  PUTS
+	  LDI R0, OS_MCR
+	  LD R1, MASK_HI
+	  AND R0, R0, R1
+	  STI R0, OS_MCR
+	  BRnzp TRAP_HALT
+
+
+BAD_TRAP (x0495)
+	 LEA R0, BAD_TRAP_MSG
+	 PUTS
+	 BRnzp TRAP_HALT
+
+
+INT_PRIV (x0498)
+	 RTI		(x8000)
+INT_ILL (x0499)
+	 RTI		(x8000)
+BAD_INT (x049A)
+	 RTI		(x8000)
+
+
+##############################################################################################
+##############################################################################################
+TRAP_IN_MSG##
+#############
+
+TRAP_IN_MSG	x049B
+	
+	x049B ~ x04AF: .FILL + ASCII
+	x049B: '\n',  	      x04AF: '\0'
+this part store the "TRAP IN MESSAGE"
+
+     TRAP_IN_MSG output
+------------------------------
+
+Input a character>
+------------------------------
+
+################################################################################################
+################################################################################################
+TRAP+HALT_MSG##
+###############
+
+TRAP_HALT_MSG	x04B0
+	
+	x04B0 ~ x04CC: .FILL + ASCII
+	x04B0: '\n',  	      x04CC: '\0'
+this part store the "BAD TRAP MESSAGE"
+
+	TRAP_HALT_MSG output
+-----------------------------------
+
+
+--- halting the LC-3 ---
+
+
+-----------------------------------
+
+
+################################################################################################
+################################################################################################
+BAD_TRAP_MSG##
+##############
+
+BAD_TRAP_MSG	x04CD
+
+	x04CD ~ x04F0: .FILL + ASCII	
+	x04CD: '\n',  	      x04F0: '\0'
+this part store the "BAD TRAP MESSAGE"
+
+	   BAD_TRAP_MSG output
+----------------------------------------------------
+
+
+--- undefined trap executed ---
+
+
+----------------------------------------------------
